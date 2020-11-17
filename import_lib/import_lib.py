@@ -18,9 +18,9 @@ import json
 import logging
 import os
 import time
-from typing import Any
+from typing import Any, Optional, Dict, Tuple
 
-from confluent_kafka import Producer, KafkaException
+from confluent_kafka import Producer, Consumer, KafkaException, cimpl
 from rfc3339 import rfc3339
 
 from .logger._logger import get_logger, init_logging
@@ -72,7 +72,6 @@ class ImportLib:
                 self.__logger.warning("Could not queue kafka message, will retry in 1s. Error: " + str(e))
                 time.sleep(1)
 
-
     def get_config(self, key: str, default: Any) -> Any:
         '''
         Get a config value by providing a key
@@ -86,3 +85,60 @@ class ImportLib:
 
     def get_logger(self, name: str) -> logging.Logger:
         return get_logger(name.rsplit(".", 1)[-1].replace("_", ""))
+
+    def get_last_published_datetime(self) -> Tuple[Optional[datetime.datetime], Optional[Dict]]:
+        '''
+        Returns the last published timestamp and message or None, if no message has been published yet. This will
+        only be the least old timestamp, if you strictly publish in order! If you published multiple values with the
+        same timestamp, there are no guarantees for which message you will receive. You should publish in order and
+        check this timestamp before importing historic data to prevent re-imports.
+        :return: Latest known timestamp
+        '''
+        consumer = Consumer(
+            {'bootstrap.servers': self.__kafka_bootstrap, 'group.id': self.__import_id})
+        partitions = consumer.list_topics(topic=self.__kafka_topic).topics[self.__kafka_topic].partitions.keys()
+        self.__logger.debug("Found " + str(len(partitions)) + " partition(s) of topic " + self.__kafka_topic)
+        num_messages = 0
+        topic_partitions = []
+        for partition in partitions:
+            high_offset = consumer.get_watermark_offsets(cimpl.TopicPartition(self.__kafka_topic, partition=partition))[
+                1]
+            self.__logger.debug("Largest offset of partition " + str(partition) + " is " + str(high_offset))
+            if high_offset > 0:  # Ignore partitions without data
+                topic_partitions.append(
+                    cimpl.TopicPartition(self.__kafka_topic, partition=partition, offset=high_offset - 1))
+                num_messages += 1
+
+        consumer.assign(topic_partitions)
+
+        self.__logger.debug("Consuming last " + str(num_messages) + " message(s) (1 from each active partition)")
+        msgs = consumer.consume(num_messages=num_messages)  # Get last messages from all partitions
+        consumer.close()
+
+        greatest_datetime = datetime.datetime.fromtimestamp(0)
+        matching_value = {}
+        for msg in msgs:
+            value = json.loads(msg.value())
+            if 'time' not in value:
+                self.__logger.warning("time field missing in message, is someone else using this topic? Ignoring "
+                                      "message")
+                continue
+            if 'value' not in value or not isinstance(value['value'], Dict):
+                self.__logger.warning("value field missing or malformed in message, is someone else using this topic? "
+                                      "Ignoring message")
+                continue
+
+            self.__logger.debug("Got timestamp: " + str(value["time"]))
+            try:
+                date_time = datetime.datetime.strptime(value["time"], "%Y-%m-%dT%H:%M:%SZ")
+            except ValueError:
+                self.__logger.warning("time field not in rfc3339 format, is someone else using this topic? Ignoring "
+                                      "message")
+                continue
+            if date_time > greatest_datetime:
+                greatest_datetime = date_time
+                matching_value = value["value"]
+
+        if greatest_datetime.timestamp() > 0:
+            return greatest_datetime, matching_value
+        return None, None
