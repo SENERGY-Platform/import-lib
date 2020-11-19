@@ -23,7 +23,11 @@ from typing import Any, Optional, Dict, Tuple
 from confluent_kafka import Producer, Consumer, KafkaException, cimpl
 from rfc3339 import rfc3339
 
-from .logger._logger import get_logger, init_logging
+from .logger._logger import get_logger as internal_get_logger, init_logging
+
+
+def get_logger(name: str) -> logging.Logger:
+    return internal_get_logger(name.rsplit(".", 1)[-1].replace("_", ""))
 
 
 class ImportLib:
@@ -82,9 +86,6 @@ class ImportLib:
         if key in self.__config:
             return self.__config[key]
         return default
-
-    def get_logger(self, name: str) -> logging.Logger:
-        return get_logger(name.rsplit(".", 1)[-1].replace("_", ""))
 
     def get_last_published_datetime(self) -> Tuple[Optional[datetime.datetime], Optional[Dict]]:
         '''
