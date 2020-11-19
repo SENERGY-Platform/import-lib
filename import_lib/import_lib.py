@@ -73,7 +73,8 @@ class ImportLib:
                 self.__producer.produce(self.__kafka_topic, key=self.__import_id, value=json.dumps(data))
                 queued = True
             except (KafkaException, BufferError) as e:
-                self.__logger.warning("Could not queue kafka message, will retry in 1s. Error: " + str(e))
+                self.__logger.warning("Could not queue kafka message, flushing and retrying in 1s. Error: " + str(e))
+                self.__producer.flush()
                 time.sleep(1)
 
     def get_config(self, key: str, default: Any) -> Any:
