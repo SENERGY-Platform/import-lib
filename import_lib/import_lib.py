@@ -18,7 +18,7 @@ import json
 import logging
 import os
 import time
-from typing import Any, Optional, Dict, Tuple
+from typing import Any, Optional, Dict, Tuple, List
 
 from confluent_kafka import Producer, Consumer, KafkaException, cimpl
 from rfc3339 import rfc3339
@@ -94,8 +94,33 @@ class ImportLib:
         only be the least old timestamp, if you strictly publish in order! If you published multiple values with the
         same timestamp, there are no guarantees for which message you will receive. You should publish in order and
         check this timestamp before importing historic data to prevent re-imports.
-        :return: Latest known timestamp
+
+        :return: Latest known timestamp and message
         '''
+        last = self.get_last_n_messages(1)
+        if last is None:
+            return None, None
+        if len(last) == 1:
+            return last[0]
+
+        greatest_datetime = datetime.datetime.fromtimestamp(0)
+        matching_value = {}
+        for date_time, value in last:
+            if date_time > greatest_datetime:
+                greatest_datetime = date_time
+                matching_value = value
+        return greatest_datetime, matching_value
+
+
+    def get_last_n_messages(self, n: int) -> Optional[List[Tuple[datetime.datetime,Dict]]]:
+        '''
+        Returns the last n published timestamps and messages or None, if no message has been published yet.
+        If the configured topic has more than one partition, you will receive more messages than requested
+        (at most partitions * n). You might receive less messages than requested, if the broker has cleared messages.
+
+        :return: List of tuples with timestamp and message or None if no message has been published yet
+        '''
+
         consumer = Consumer(
             {'bootstrap.servers': self.__kafka_bootstrap, 'group.id': self.__import_id})
         partitions = consumer.list_topics(topic=self.__kafka_topic).topics[self.__kafka_topic].partitions.keys()
@@ -103,44 +128,60 @@ class ImportLib:
         num_messages = 0
         topic_partitions = []
         for partition in partitions:
-            high_offset = consumer.get_watermark_offsets(cimpl.TopicPartition(self.__kafka_topic, partition=partition))[
-                1]
-            self.__logger.debug("Largest offset of partition " + str(partition) + " is " + str(high_offset))
+            high_low_offset = consumer.get_watermark_offsets(cimpl.TopicPartition(self.__kafka_topic, partition=partition))
+            high_offset = high_low_offset[1]
+            low_offset = high_low_offset[0]
+            available_messages = high_offset - low_offset
+            self.__logger.debug("Low/High offset of partition " + str(partition) + " is " + str(low_offset) + "/"+ str(high_offset))
             if high_offset > 0:  # Ignore partitions without data
-                topic_partitions.append(
-                    cimpl.TopicPartition(self.__kafka_topic, partition=partition, offset=high_offset - 1))
-                num_messages += 1
+                if available_messages >= n:
+                    offset = high_offset - n
+                    num_messages += n
+                else:
+                    offset = low_offset
+                    num_messages += available_messages
+                partition = cimpl.TopicPartition(self.__kafka_topic, partition=partition, offset=offset)
+                topic_partitions.append(partition)
+                self.__logger.debug("Setting offset of partition " + str(partition))
+
+        if len(topic_partitions) == 0: # No partition has any data
+            return None
 
         consumer.assign(topic_partitions)
+        consumer.commit(offsets=topic_partitions)
+        tuples = []
+        consumed_messages = 0
+        batch_size = 10000
+        self.__logger.debug("Consuming last " + str(num_messages) + " message(s)")
 
-        self.__logger.debug("Consuming last " + str(num_messages) + " message(s) (1 from each active partition)")
-        msgs = consumer.consume(num_messages=num_messages)  # Get last messages from all partitions
+        while consumed_messages < num_messages:
+            if consumed_messages + batch_size <= num_messages:
+                to_consume = batch_size
+            else:
+                to_consume = num_messages - consumed_messages
+
+            consumed_messages += to_consume
+            self.__logger.debug("Consuming batch of " + str(to_consume) + " messages")
+            msgs = consumer.consume(num_messages=to_consume, timeout=30)
+
+            for msg in msgs:
+                value = json.loads(msg.value())
+                if 'time' not in value:
+                    self.__logger.warning("time field missing in message, is someone else using this topic? Ignoring "
+                                          "message")
+                    continue
+                if 'value' not in value or not isinstance(value['value'], Dict):
+                    self.__logger.warning("value field missing or malformed in message, is someone else using this topic? "
+                                          "Ignoring message")
+                    continue
+
+                try:
+                    date_time = datetime.datetime.strptime(value["time"], "%Y-%m-%dT%H:%M:%SZ")
+                except ValueError:
+                    self.__logger.warning("time field not in rfc3339 format, is someone else using this topic? Ignoring "
+                                          "message")
+                    continue
+                tuples.append((date_time, value["value"]))
+
         consumer.close()
-
-        greatest_datetime = datetime.datetime.fromtimestamp(0)
-        matching_value = {}
-        for msg in msgs:
-            value = json.loads(msg.value())
-            if 'time' not in value:
-                self.__logger.warning("time field missing in message, is someone else using this topic? Ignoring "
-                                      "message")
-                continue
-            if 'value' not in value or not isinstance(value['value'], Dict):
-                self.__logger.warning("value field missing or malformed in message, is someone else using this topic? "
-                                      "Ignoring message")
-                continue
-
-            self.__logger.debug("Got timestamp: " + str(value["time"]))
-            try:
-                date_time = datetime.datetime.strptime(value["time"], "%Y-%m-%dT%H:%M:%SZ")
-            except ValueError:
-                self.__logger.warning("time field not in rfc3339 format, is someone else using this topic? Ignoring "
-                                      "message")
-                continue
-            if date_time > greatest_datetime:
-                greatest_datetime = date_time
-                matching_value = value["value"]
-
-        if greatest_datetime.timestamp() > 0:
-            return greatest_datetime, matching_value
-        return None, None
+        return tuples
