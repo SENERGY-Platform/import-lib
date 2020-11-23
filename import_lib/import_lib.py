@@ -21,6 +21,7 @@ import time
 from typing import Any, Optional, Dict, Tuple, List
 
 from confluent_kafka import Producer, Consumer, KafkaException, cimpl
+from confluent_kafka.admin import AdminClient, ConfigResource
 from rfc3339 import rfc3339
 
 from .logger._logger import get_logger as internal_get_logger, init_logging
@@ -54,6 +55,8 @@ class ImportLib:
         self.__logger.info("Config: " + str(self.__config))
 
         self.__producer = Producer({'bootstrap.servers': self.__kafka_bootstrap})
+
+        self.__configure_topic()
 
     def put(self, date_time: datetime, value: dict) -> None:
         '''
@@ -111,8 +114,7 @@ class ImportLib:
                 matching_value = value
         return greatest_datetime, matching_value
 
-
-    def get_last_n_messages(self, n: int) -> Optional[List[Tuple[datetime.datetime,Dict]]]:
+    def get_last_n_messages(self, n: int) -> Optional[List[Tuple[datetime.datetime, Dict]]]:
         '''
         Returns the last n published timestamps and messages or None, if no message has been published yet.
         If the configured topic has more than one partition, you will receive more messages than requested
@@ -128,11 +130,13 @@ class ImportLib:
         num_messages = 0
         topic_partitions = []
         for partition in partitions:
-            high_low_offset = consumer.get_watermark_offsets(cimpl.TopicPartition(self.__kafka_topic, partition=partition))
+            high_low_offset = consumer.get_watermark_offsets(
+                cimpl.TopicPartition(self.__kafka_topic, partition=partition))
             high_offset = high_low_offset[1]
             low_offset = high_low_offset[0]
             available_messages = high_offset - low_offset
-            self.__logger.debug("Low/High offset of partition " + str(partition) + " is " + str(low_offset) + "/"+ str(high_offset))
+            self.__logger.debug(
+                "Low/High offset of partition " + str(partition) + " is " + str(low_offset) + "/" + str(high_offset))
             if high_offset > 0:  # Ignore partitions without data
                 if available_messages >= n:
                     offset = high_offset - n
@@ -144,7 +148,7 @@ class ImportLib:
                 topic_partitions.append(partition)
                 self.__logger.debug("Setting offset of partition " + str(partition))
 
-        if len(topic_partitions) == 0: # No partition has any data
+        if len(topic_partitions) == 0:  # No partition has any data
             return None
 
         consumer.assign(topic_partitions)
@@ -171,17 +175,27 @@ class ImportLib:
                                           "message")
                     continue
                 if 'value' not in value or not isinstance(value['value'], Dict):
-                    self.__logger.warning("value field missing or malformed in message, is someone else using this topic? "
-                                          "Ignoring message")
+                    self.__logger.warning(
+                        "value field missing or malformed in message, is someone else using this topic? "
+                        "Ignoring message")
                     continue
 
                 try:
                     date_time = datetime.datetime.strptime(value["time"], "%Y-%m-%dT%H:%M:%SZ")
                 except ValueError:
-                    self.__logger.warning("time field not in rfc3339 format, is someone else using this topic? Ignoring "
-                                          "message")
+                    self.__logger.warning(
+                        "time field not in rfc3339 format, is someone else using this topic? Ignoring "
+                        "message")
                     continue
                 tuples.append((date_time, value["value"]))
 
         consumer.close()
         return tuples
+
+    def __configure_topic(self):
+        admin = AdminClient({'bootstrap.servers': self.__kafka_bootstrap, 'group.id': self.__import_id})
+        admin.create_topics([cimpl.NewTopic(topic=self.__kafka_topic, num_partitions=1)])
+        admin.alter_configs([ConfigResource(restype=ConfigResource.Type.TOPIC, name=self.__kafka_topic, set_config={
+            "retention.bytes": -1,
+            "retention.ms": -1,
+        })])
