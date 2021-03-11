@@ -193,7 +193,7 @@ class ImportLib:
         return tuples
 
     def __configure_topic(self):
-        admin = AdminClient({'bootstrap.servers': self.__kafka_bootstrap, 'group.id': self.__import_id})
+        admin = AdminClient({'bootstrap.servers': self.__kafka_bootstrap})
         admin.create_topics([cimpl.NewTopic(topic=self.__kafka_topic, num_partitions=1)])
         admin.alter_configs([ConfigResource(restype=ConfigResource.Type.TOPIC, name=self.__kafka_topic, set_config={
             "retention.bytes": -1,
