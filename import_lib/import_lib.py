@@ -196,6 +196,6 @@ class ImportLib:
         admin = AdminClient({'bootstrap.servers': self.__kafka_bootstrap})
         admin.create_topics([cimpl.NewTopic(topic=self.__kafka_topic, num_partitions=1)])
         admin.alter_configs([ConfigResource(restype=ConfigResource.Type.TOPIC, name=self.__kafka_topic, set_config={
-            "retention.bytes": -1,
+            "retention.bytes": 10000000,
             "retention.ms": -1,
         })])
