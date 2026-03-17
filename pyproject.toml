@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "import-lib"
-version = "0.2.4"
+version = "0.2.5"
 description = "Library for users wanting to integrate external data with SENERGY."
 license = { text = "Apache License 2.0" }
 authors = [

@@ -35,6 +35,8 @@ class LoggerError(Exception):
 
 logging.setLoggerClass(structlog.Logger)
 logger = logging.getLogger('import')
+logger.propagate = False
+logger.addHandler(logging.StreamHandler())
 
 
 def init_logging(level: str, project_name: str) -> None:
