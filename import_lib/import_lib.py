@@ -54,7 +54,7 @@ class ImportLib:
             os.getenv("CONFIG", '{}'))
         self.__logger.info("Config: " + str(self.__config))
 
-        self.__producer = Producer({'bootstrap.servers': self.__kafka_bootstrap})
+        self.__producer = Producer({'bootstrap.servers': self.__kafka_bootstrap}, logger=get_logger('kafka_producer'))
 
         self.__configure_topic()
 
@@ -124,7 +124,7 @@ class ImportLib:
         '''
 
         consumer = Consumer(
-            {'bootstrap.servers': self.__kafka_bootstrap, 'group.id': self.__import_id})
+            {'bootstrap.servers': self.__kafka_bootstrap, 'group.id': self.__import_id}, logger=get_logger('kafka_consumer'))
         partitions = consumer.list_topics(topic=self.__kafka_topic).topics[self.__kafka_topic].partitions.keys()
         self.__logger.debug("Found " + str(len(partitions)) + " partition(s) of topic " + self.__kafka_topic)
         num_messages = 0
