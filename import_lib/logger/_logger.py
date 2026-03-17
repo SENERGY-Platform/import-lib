@@ -18,6 +18,7 @@ __all__ = ('get_logger', 'init_logging')
 
 import logging.handlers
 import threading
+import structlog
 
 lock = threading.RLock()
 
@@ -29,30 +30,14 @@ logging_levels = {
     'debug': logging.DEBUG
 }
 
-color_code = {
-    'CRITICAL': '\033[41m',
-    'ERROR': '\033[31m',
-    'WARNING': '\033[33m',
-    'DEBUG': '\033[94m',
-}
-
-
 class LoggerError(Exception):
     pass
-
-
-class ColorFormatter(logging.Formatter):
-    def format(self, record):
-        s = super().format(record)
-        if record.levelname in color_code:
-            return '{}{}{}'.format(color_code[record.levelname], s, '\033[0m')
-        return s
-
 
 msg_fmt = '%(asctime)s - %(levelname)s: [%(name)s] %(message)s'
 date_fmt = '%d.%m.%Y %H:%M:%S%z'
 standard_formatter = logging.Formatter(fmt=msg_fmt, datefmt=date_fmt)
-color_formatter = ColorFormatter(fmt=msg_fmt, datefmt=date_fmt)
+
+logging.setLoggerClass(structlog.Logger)
 
 stream_handler = logging.StreamHandler()
 stream_handler.setFormatter(standard_formatter)
@@ -62,12 +47,12 @@ logger.propagate = False
 logger.addHandler(stream_handler)
 
 
-def init_logging(level: str, colored: bool = True) -> None:
+def init_logging(level: str, project_name: str) -> None:
+    logger.configure(organization_name='github.com/SENERGY-Platform', project_name=project_name, time_utc=True, logger_name=True)
     if not level in logging_levels.keys():
         err = "unknown log level '{}'".format(level)
         raise LoggerError(err)
-    if colored:
-        stream_handler.setFormatter(color_formatter)
+
     logger.setLevel(logging_levels[level])
 
 
