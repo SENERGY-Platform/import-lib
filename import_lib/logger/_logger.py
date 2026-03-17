@@ -16,7 +16,7 @@
 
 __all__ = ('get_logger', 'init_logging')
 
-import logging.handlers
+import logging
 import threading
 import structlog
 
@@ -33,18 +33,8 @@ logging_levels = {
 class LoggerError(Exception):
     pass
 
-msg_fmt = '%(asctime)s - %(levelname)s: [%(name)s] %(message)s'
-date_fmt = '%d.%m.%Y %H:%M:%S%z'
-standard_formatter = logging.Formatter(fmt=msg_fmt, datefmt=date_fmt)
-
 logging.setLoggerClass(structlog.Logger)
-
-stream_handler = logging.StreamHandler()
-stream_handler.setFormatter(standard_formatter)
-
 logger = logging.getLogger('import')
-logger.propagate = False
-logger.addHandler(stream_handler)
 
 
 def init_logging(level: str, project_name: str) -> None:
