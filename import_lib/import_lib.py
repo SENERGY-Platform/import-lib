@@ -32,12 +32,12 @@ def get_logger(name: str) -> logging.Logger:
 
 
 class ImportLib:
-    def __init__(self):
+    def __init__(self, project_name: str):
         if os.getenv("DEBUG", "False").lower() == 'true':
             level = 'debug'
         else:
             level = 'info'
-        init_logging(level)
+        init_logging(level, project_name)
         self.__logger = get_logger(__name__.rsplit(".", 1)[-1].replace("_", ""))
         self.__logger.info("Log Level: " + level)
 
