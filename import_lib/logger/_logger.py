@@ -39,8 +39,15 @@ logger.propagate = False
 logger.addHandler(logging.StreamHandler())
 
 
-def init_logging(level: str, project_name: str) -> None:
-    logger.configure(organization_name='github.com/SENERGY-Platform', project_name=project_name, time_utc=True, logger_name=True)
+def init_logging(level: str, project_name: str, baggage: dict = None) -> None:
+    """
+    'baggage' is the OpenTelemetry context of the request that created this import
+    instance, parsed out of the BAGGAGE environment variable. Its entries become
+    static fields on every log record, which is what makes a line from this import
+    findable by, for example, the smart service instance it belongs to.
+    """
+    logger.configure(organization_name='github.com/SENERGY-Platform', project_name=project_name, time_utc=True,
+                     logger_name=True, extra=baggage)
     if not level in logging_levels.keys():
         err = "unknown log level '{}'".format(level)
         raise LoggerError(err)

@@ -24,6 +24,7 @@ from confluent_kafka import Producer, Consumer, KafkaException, cimpl
 from confluent_kafka.admin import AdminClient, ConfigResource
 from rfc3339 import rfc3339
 
+from .baggage import parse_baggage
 from .logger._logger import get_logger as internal_get_logger, init_logging
 
 
@@ -37,7 +38,10 @@ class ImportLib:
             level = 'debug'
         else:
             level = 'info'
-        init_logging(level, project_name)
+        # The context of the request that created this instance, which import-deploy
+        # passes down as a W3C baggage header. Every log record below carries its
+        # entries, so a line from this import can be traced back to what caused it.
+        init_logging(level, project_name, parse_baggage(os.getenv("BAGGAGE")))
         self.__logger = get_logger(__name__.rsplit(".", 1)[-1].replace("_", ""))
         self.__logger.info("Log Level: " + level)
 
