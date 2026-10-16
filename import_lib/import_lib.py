@@ -56,7 +56,8 @@ class ImportLib:
 
         self.__config = json.loads(
             os.getenv("CONFIG", '{}'))
-        self.__logger.info("Config: " + str(self.__config))
+        # Keys only: the values are user input and may contain credentials.
+        self.__logger.info("Config keys: " + ", ".join(sorted(str(k) for k in self.__config)))
 
         self.__producer = Producer({'bootstrap.servers': self.__kafka_bootstrap}, logger=get_logger('kafka_producer'))
 
